@@ -16,25 +16,35 @@
 
 package com.mobilevangelist.glass.cameratest.app;
 
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.hardware.Camera;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Message;
+import android.preference.PreferenceManager;
 import android.util.Log;
 import android.view.KeyEvent;
+import android.widget.Toast;
 
 import com.google.android.glass.app.Card;
 import com.google.android.glass.timeline.TimelineManager;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+
+import pl.itraff.TestApi.ItraffApi.ItraffApi;
 
 /**
  * Camera preview
@@ -74,61 +84,81 @@ public class CameraActivity extends Activity {
     }
   }
 
-  public String savePicture(Bitmap image) throws IOException {
-    android.util.Log.d("CameraActivity", "Saving picture...");
-    SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd_HHmmss_SSS");
-    String imageFilename = sdf.format(new Date()) + ".jpg";
-    String imageFullPath = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM) + File.separator + "Camera" + File.separator + imageFilename;
-    //android.util.Log.d("CameraActivity", "external dcim dir: " + Environment.getExternalStoragePublicDirectory(Environment.));
 
-    FileOutputStream fos = null;
-    try {
-      fos = new FileOutputStream(imageFullPath);
-
-      image.compress(Bitmap.CompressFormat.JPEG, 100, fos);
-
-      android.util.Log.d("CameraActivity", "Picture saved.");
-      return imageFullPath;
-    }
-    catch (IOException e) {
-      e.printStackTrace();
-
-      throw(e);
-    }
-    finally {
-      if (null != fos) {
-        try {
-          fos.close();
-        }
-        catch (IOException e) {
-          e.printStackTrace();
-        }
-      }
-    }
-  }
 
   class SavePicture implements Camera.PictureCallback {
-    @Override
+    
+
+		public  final Integer CLIENT_API_ID = 42865;
+		public  final String CLIENT_API_KEY = "502cbb30e3";
+
+		private static final String TAG = "TestApi";
+		
+		// handler that receives response from api
+		@SuppressLint("HandlerLeak")
+		private Handler itraffApiHandler = new Handler() {
+			// callback from api
+			@Override
+			public void handleMessage(Message msg) {
+				Log.d("MSG","Yippie");
+//				dismissWaitDialog();
+				Bundle data = msg.getData();
+				if (data != null) {
+					Integer status = data.getInt(ItraffApi.STATUS, -1);
+					String response = data.getString(ItraffApi.RESPONSE);
+					Log.d("status",status+"");
+					Log.d("respoonse",response);
+					Card photoCard = new Card(_context);
+			        if(response.contains("i_533af5bc21df9"))
+			        {	
+			        	photoCard.setText("Price for red santa on eBay is 3$");
+			        }else if(response.contains("i_533af5b648802"))
+			        {	
+			        	photoCard.setText("Price for grey horse on eBay is 4$");
+			        }
+			        else
+			        {
+			        	photoCard.setText("Item not found on eBay");
+			        }
+			        TimelineManager.from(_context).insert(photoCard);
+				}
+			}
+		};
+		
+	@Override
     public void onPictureTaken(byte[] bytes, Camera camera) {
       android.util.Log.d("CameraActivity", "In onPictureTaken().");
       Bitmap image = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+      android.util.Log.d("Image:",image.toString());
+      
+		if (image != null) {
+			android.util.Log.d("","image != null");
 
-      try {
-        // Save the image
-        String imageFilename = savePicture(image);
+			// chceck internet connection
+			if (ItraffApi.isOnline(getApplicationContext())) {
+//				showWaitDialog();
+				SharedPreferences prefs = PreferenceManager
+						.getDefaultSharedPreferences(getBaseContext());
+				// send photo
+				ItraffApi api = new ItraffApi(CLIENT_API_ID,
+						CLIENT_API_KEY, TAG, true);
+				Log.d("KEY", CLIENT_API_ID.toString());
+				
+				api.setMode(ItraffApi.MODE_SINGLE);
+				
 
-        Uri uri = Uri.fromFile(new File(imageFilename));
-        android.util.Log.d("CameraActivity", "imageFilename: " + imageFilename);
-        android.util.Log.d("CameraActivity", "uri: " + uri);
-        Card photoCard = new Card(_context);
-        photoCard.setImageLayout(Card.ImageLayout.FULL);
-        photoCard.addImage(uri);
-        android.util.Log.d("CameraActivity", "Inserting into timeline.");
-        TimelineManager.from(_context).insert(photoCard);
-      }
-      catch (IOException e) {
-        e.printStackTrace();
-      }
+				ByteArrayOutputStream stream = new ByteArrayOutputStream();
+				image.compress(Bitmap.CompressFormat.JPEG, 100,
+						stream);
+				byte[] pictureData = stream.toByteArray();
+				Log.d("about to send photo","Yay");
+				api.sendPhoto(pictureData, itraffApiHandler,
+						prefs.getBoolean("allResults", true));
+			} 
+		}
+		
+        
+
     }
   }
 }
